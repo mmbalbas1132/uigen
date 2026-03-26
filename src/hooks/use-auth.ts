@@ -36,7 +36,7 @@ export function useAuth() {
       return;
     }
 
-    // If no projects exist, create a new one
+    // Si el proyecto no existe, crear uno
     const newProject = await createProject({
       name: `New Design #${~~(Math.random() * 100000)}`,
       messages: [],
