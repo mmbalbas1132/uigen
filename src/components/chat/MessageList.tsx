@@ -1,0 +1,182 @@
+"use client";
+
+import { Message } from "ai";
+import { cn } from "@/lib/utils";
+import { User, Bot, Loader2 } from "lucide-react";
+import { MarkdownRenderer } from "./MarkdownRenderer";
+
+interface MessageListProps {
+  messages: Message[];
+  isLoading?: boolean;
+}
+
+// Convierte el nombre técnico del tool call en un mensaje amigable para el usuario.
+// En lugar de mostrar "str_replace_editor", muestra algo como "Creando App.jsx".
+function getToolLabel(toolName: string, args: any, isDone: boolean): string {
+  // Extraemos solo el nombre del archivo de la ruta completa (ej: "/components/Card.jsx" → "Card.jsx")
+  const fileName = args?.path ? args.path.split("/").filter(Boolean).pop() ?? args.path : "";
+
+  if (toolName === "str_replace_editor") {
+    switch (args?.command) {
+      case "create":
+        return isDone ? `${fileName} creado` : `Creando ${fileName}...`;
+      case "str_replace":
+      case "insert":
+        return isDone ? `${fileName} actualizado` : `Editando ${fileName}...`;
+      case "view":
+        return isDone ? `${fileName} leído` : `Leyendo ${fileName}...`;
+      default:
+        return isDone ? "Archivo modificado" : "Escribiendo código...";
+    }
+  }
+
+  if (toolName === "file_manager") {
+    switch (args?.command) {
+      case "rename":
+        return isDone ? "Archivo renombrado" : "Renombrando archivo...";
+      case "delete":
+        return isDone ? "Archivo eliminado" : "Eliminando archivo...";
+      default:
+        return isDone ? "Archivos gestionados" : "Gestionando archivos...";
+    }
+  }
+
+  // Fallback por si se añaden nuevas herramientas en el futuro
+  return toolName;
+}
+
+export function MessageList({ messages, isLoading }: MessageListProps) {
+  if (messages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full px-4 text-center">
+        <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-50 mb-4 shadow-sm">
+          <Bot className="h-7 w-7 text-blue-600" />
+        </div>
+        <p className="text-foreground font-semibold text-lg mb-2">Inicia una conversación para generar componentes React</p>
+        <p className="text-muted-foreground text-sm max-w-sm">Puedo ayudarte a crear botones, formularios, tarjetas y mucho más</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto px-4 py-6">
+      <div className="space-y-6 max-w-4xl mx-auto w-full">
+        {messages.map((message) => (
+          <div
+            key={message.id || message.content}
+            className={cn(
+              "flex gap-4",
+              message.role === "user" ? "justify-end" : "justify-start"
+            )}
+          >
+            {message.role === "assistant" && (
+              <div className="flex-shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-background border border-border shadow-sm flex items-center justify-center">
+                  <Bot className="h-4.5 w-4.5 text-foreground" />
+                </div>
+              </div>
+            )}
+            
+            <div className={cn(
+              "flex flex-col gap-2 max-w-[85%]",
+              message.role === "user" ? "items-end" : "items-start"
+            )}>
+              <div className={cn(
+                "rounded-xl px-4 py-3",
+                message.role === "user" 
+                  ? "bg-blue-600 text-white shadow-sm" 
+                  : "bg-background text-foreground border border-border shadow-sm"
+              )}>
+                <div className="text-sm">
+                  {message.parts ? (
+                    <>
+                      {message.parts.map((part, partIndex) => {
+                        switch (part.type) {
+                          case "text":
+                            return message.role === "user" ? (
+                              <span key={partIndex} className="whitespace-pre-wrap">{part.text}</span>
+                            ) : (
+                              <MarkdownRenderer
+                                key={partIndex}
+                                content={part.text}
+                                className="prose-sm"
+                              />
+                            );
+                          case "reasoning":
+                            return (
+                              <div key={partIndex} className="mt-3 p-3 bg-background/50 rounded-md border border-border">
+                                <span className="text-xs font-medium text-muted-foreground block mb-1">Razonamiento</span>
+                                <span className="text-sm text-foreground">{part.reasoning}</span>
+                              </div>
+                            );
+                          case "tool-invocation":
+                            const tool = part.toolInvocation;
+                            const isDone = tool.state === "result" && tool.result;
+                            const label = getToolLabel(tool.toolName, tool.args, !!isDone);
+                            return (
+                              <div key={partIndex} className="inline-flex items-center gap-2 mt-2 px-3 py-1.5 bg-muted rounded-lg text-xs border border-border">
+                                {isDone ? (
+                                  <>
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                    <span className="text-muted-foreground">{label}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                                    <span className="text-muted-foreground">{label}</span>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          case "source":
+                            return (
+                              <div key={partIndex} className="mt-2 text-xs text-muted-foreground">
+                                Source: {JSON.stringify(part.source)}
+                              </div>
+                            );
+                          case "step-start":
+                            return partIndex > 0 ? <hr key={partIndex} className="my-3 border-border" /> : null;
+                          default:
+                            return null;
+                        }
+                      })}
+                      {isLoading &&
+                        message.role === "assistant" &&
+                        messages.indexOf(message) === messages.length - 1 && (
+                          <div className="flex items-center gap-2 mt-3 text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span className="text-sm">Generando...</span>
+                          </div>
+                        )}
+                    </>
+                  ) : message.content ? (
+                    message.role === "user" ? (
+                      <span className="whitespace-pre-wrap">{message.content}</span>
+                    ) : (
+                      <MarkdownRenderer content={message.content} className="prose-sm" />
+                    )
+                  ) : isLoading &&
+                    message.role === "assistant" &&
+                    messages.indexOf(message) === messages.length - 1 ? (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span className="text-sm">Generando...</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            
+            {message.role === "user" && (
+              <div className="flex-shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-blue-600 shadow-sm flex items-center justify-center">
+                  <User className="h-4.5 w-4.5 text-white" />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
